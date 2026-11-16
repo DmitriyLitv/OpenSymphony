@@ -1,11 +1,6 @@
 services:
   opensymphony:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-      args:
-        CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-0.138.0}
+    image: ghcr.io/dmitriylitv/opensymphony:${OPENSYMPHONY_IMAGE_TAG:-${SOURCE_COMMIT:?SOURCE_COMMIT is supplied by Coolify; otherwise set OPENSYMPHONY_IMAGE_TAG}}
     restart: unless-stopped
     stop_grace_period: 2m
     environment:
@@ -54,10 +49,7 @@ services:
       - ALL
 
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: web
+    image: ghcr.io/dmitriylitv/opensymphony-web:${OPENSYMPHONY_IMAGE_TAG:-${SOURCE_COMMIT:?SOURCE_COMMIT is supplied by Coolify; otherwise set OPENSYMPHONY_IMAGE_TAG}}
     restart: unless-stopped
     depends_on:
       opensymphony:

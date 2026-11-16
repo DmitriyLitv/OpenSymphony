@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --locked --release && \
     cp /src/target/release/opensymphony /usr/local/bin/opensymphony
 
-FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim AS opensymphony
 ARG CODEX_CLI_VERSION=0.138.0
 LABEL org.opencontainers.image.title="OpenSymphony" \
       org.opencontainers.image.description="OpenSymphony orchestrator with the official Codex CLI"

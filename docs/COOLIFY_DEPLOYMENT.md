@@ -1,8 +1,9 @@
 # Coolify Deployment
 
 This deployment runs the real `opensymphony run` entrypoint on a single Ubuntu
-24.04 VPS. It builds OpenSymphony and the existing alpha web client inside
-multi-stage images, runs the official Codex CLI as the default local harness,
+24.04 VPS. GitHub Actions builds OpenSymphony and the existing alpha web client
+as separate GHCR images; Coolify pulls the images selected by the deployed Git
+commit. The runtime uses the official Codex CLI as the default local harness
 and exposes only an authenticated Caddy edge to Coolify's Traefik proxy.
 
 The alpha browser client is an operator preview, not a complete production
@@ -37,11 +38,9 @@ and can read injected credentials and mounted workspaces. Treat this as a
 single-operator trusted deployment, not tenant isolation.
 
 Runtime limits reserve at most 2 vCPU and 3 GiB for the orchestrator plus its
-Codex child and 0.25 vCPU/128 MiB for Caddy. The Docker image build is separate
-from those runtime limits and compiles bundled DuckDB; on a busy 6 GiB host it
-can be slow. Schedule the first build during a quiet window. If it causes host
-pressure, build and push the two targets from a larger builder and replace the
-Compose `build` entries with immutable image references.
+Codex child and 0.25 vCPU/128 MiB for Caddy. Bundled DuckDB and the web client
+are compiled on GitHub-hosted runners, not on the deployment VPS. The workflow
+uses Buildx caches and publishes only full commit-SHA tags.
 
 ## Files and persistent volumes
 
@@ -75,9 +74,9 @@ repository-specific memory policy.
 
 1. Point an `A`/`AAAA` record such as `symphony.example.com` at the Coolify VPS.
 2. Confirm inbound TCP 80 and 443 reach Coolify's Traefik proxy.
-3. Confirm the VPS has enough free disk for Rust/npm build layers, images, Git
-   workspaces, and volume backups. Ten GiB free is a practical minimum for the
-   initial build; active repositories may need much more.
+3. Confirm the VPS has enough free disk for the pulled images, Git workspaces,
+   and volume backups. Active repositories may need substantially more space
+   than the images themselves.
 4. Do not open ports 2468 or 8080 in the VPS firewall. Traefik reaches the
    Compose service on its internal network.
 
@@ -96,13 +95,53 @@ deployment follows this fork and branch:
    `/docker-compose.yml`.
 5. Save/reload the Compose definition. Confirm Coolify detects services
    `opensymphony` and `web`, six volumes, and both Compose health checks.
-6. Under **Advanced -> Build**, use the normal Dockerfile-managed build
-   arguments. Do not add secrets as build arguments.
+6. Keep the existing repository and branch selection. The Compose image tags
+   resolve from Coolify's predefined `SOURCE_COMMIT`, so no Coolify build pack
+   or Docker build arguments are required.
 
 Coolify's Compose documentation notes that Git-backed Compose Applications use
 the repository definition, Compose-owned volumes, and Compose health checks.
 Edit this file in Git and redeploy rather than editing only the rendered copy in
 Coolify.
+
+### GHCR images and package access
+
+The `container-images` GitHub Actions workflow publishes these exact image
+repositories:
+
+- `ghcr.io/dmitriylitv/opensymphony:<full-git-sha>`
+- `ghcr.io/dmitriylitv/opensymphony-web:<full-git-sha>`
+
+Both images use the same 40-character source commit tag. The workflow has only
+`contents: read` and `packages: write` permissions, authenticates with its
+ephemeral repository `GITHUB_TOKEN`, and never needs a stored publishing token.
+Buildx cache scopes are separate for the `opensymphony` and `web` targets. A
+same-commit concurrency group cancels overlapping runs, and each matrix job
+skips a tag that is already present in GHCR.
+
+New GHCR packages are private by default. After the first successful workflow
+run, either keep both packages private or explicitly change both package
+visibilities under the GitHub account's **Packages -> Package settings**. A
+public GHCR image can be pulled anonymously; GitHub warns that changing a
+package to public cannot be undone.
+
+For private packages, authenticate the Coolify deployment server under
+**Servers -> [server] -> Registries** (or the global **Registries** page) with:
+
+- registry: `ghcr.io`;
+- username: the GitHub account that can read both packages;
+- password: a GitHub personal access token (classic) with `read:packages`.
+
+Store that token only in Coolify's registry login or the deployment server's
+Docker credential store. Never add it to Compose, `.env`, GitHub source files,
+or Git history. Authenticate every deployment server that may pull the images.
+No registry login is required after both packages are public.
+
+GitHub Actions and Coolify may react to the same push concurrently. Wait for
+both `container-images` matrix jobs for the deployed commit to succeed before
+clicking **Redeploy**. An earlier automatic attempt can report a missing image
+until the immutable tag has been published; retrying afterward uses the same
+repository, branch, and commit without a local build.
 
 ## 3. Configure environment variables
 
@@ -124,7 +163,7 @@ empty deployment.
 | `CODEX_HTTP_PROXY` | no | optional plain HTTP proxy URL |
 | `NO_PROXY` | no | must retain internal service/loopback exclusions |
 | `CODEX_CA_CERTIFICATE` | no | PEM path such as `/config/certs/company-ca.pem` |
-| `CODEX_CLI_VERSION` | no | reproducible image pin; default `0.138.0` |
+| `OPENSYMPHONY_IMAGE_TAG` | no | full published commit SHA override for rollback or non-Coolify Compose use; normally leave empty so Coolify supplies `SOURCE_COMMIT` |
 | `RUST_LOG` | no | Rust log filter, default `info` |
 
 Generate the web password hash locally without placing plaintext in Git:
@@ -315,20 +354,29 @@ containers manually while a Git push is in progress.
 ### Update
 
 1. Back up the six named volumes.
-2. Pull/deploy the desired commit of this fork in Coolify.
-3. Review Dockerfile, Compose, config-template, and Codex CLI pin changes.
-4. Redeploy. Named volumes preserve config, login, and workspaces.
-5. Re-run the health, Codex status, gateway, and one-task smoke checks.
+2. Push or select the desired commit on the branch already configured in
+   Coolify.
+3. Wait for both `container-images` jobs for that exact commit to succeed. Do
+   not infer image success from the source push alone.
+4. If the packages are private, verify the deployment server's GHCR registry
+   login, then redeploy the Git-backed Compose application.
+5. Confirm the deployment pulled both `<full-git-sha>` tags. Named volumes
+   preserve configuration, ChatGPT login, and workspaces.
+6. Re-run the health, Codex status, gateway, and one-task smoke checks.
 
-Changing `CODEX_CLI_VERSION` is a build-time change and requires **Deploy**, not
-only Restart. The persisted `/config` and Codex `config.toml` are not replaced
-automatically; merge intentional template changes by hand.
+The Codex CLI version remains pinned by `CODEX_CLI_VERSION` in `Dockerfile`.
+Changing it requires a source commit and a successful GitHub Actions image
+build; it is no longer a Coolify build argument. The persisted `/config` and
+Codex `config.toml` are not replaced automatically; merge intentional template
+changes by hand.
 
 ### Troubleshooting
 
-- **Build is killed or the VPS swaps heavily:** stop other nonessential builds,
-  retry during a quiet window, or build/push images off-host. Runtime limits do
-  not limit Docker build memory.
+- **Image pull says manifest unknown:** verify both `container-images` jobs for
+  Coolify's deployed `SOURCE_COMMIT` succeeded, then redeploy after publication.
+- **Image pull is denied:** either make both GHCR packages public or configure
+  the deployment server's GHCR login with a package-readable account and a
+  classic token scoped to `read:packages`.
 - **`web` is unhealthy:** inspect the Caddy logs, verify the required username
   and literal password hash, and confirm port 8080 matches the Coolify domain.
 - **Domain says no available server:** confirm both services are healthy,
@@ -365,6 +413,9 @@ credentials, or full environment dumps into support tickets.
 ## Reference documentation
 
 - [Coolify Docker Compose applications](https://coolify.io/docs/applications/builds/docker-compose)
+- [Coolify Docker registries](https://coolify.io/docs/applications/builds/docker-registries)
+- [GitHub Container registry](https://docs.github.com/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
+- [GitHub package visibility](https://docs.github.com/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)
 - [Coolify domains](https://coolify.io/docs/core/networking/domains)
 - [Coolify persistent storage](https://coolify.io/docs/applications/configuration/persistent-storage)
 - [OpenAI Codex authentication](https://developers.openai.com/codex/auth)
