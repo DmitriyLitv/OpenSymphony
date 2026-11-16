@@ -77,6 +77,7 @@ ENV HOME=/home/opensymphony \
     OPENSYMPHONY_CODEX_BIN=/usr/local/bin/codex
 WORKDIR /config
 USER opensymphony
+STOPSIGNAL SIGINT
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["opensymphony", "run", "--config", "/config/config.yaml"]
 
