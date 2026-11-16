@@ -1,0 +1,96 @@
+services:
+  opensymphony:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-0.138.0}
+    restart: unless-stopped
+    stop_grace_period: 2m
+    environment:
+      HOME: /home/opensymphony
+      CODEX_HOME: /home/opensymphony/.codex
+      XDG_CONFIG_HOME: /home/opensymphony/.config
+      RUST_LOG: ${RUST_LOG:-info}
+      LINEAR_API_KEY: ${LINEAR_API_KEY:?Set LINEAR_API_KEY in Coolify}
+      LINEAR_PROJECT_SLUG: ${LINEAR_PROJECT_SLUG:?Set LINEAR_PROJECT_SLUG in Coolify}
+      TARGET_REPOSITORY_URL: ${TARGET_REPOSITORY_URL:?Set TARGET_REPOSITORY_URL in Coolify}
+      OPENSYMPHONY_HARNESS: codex_app_server
+      OPENSYMPHONY_MODEL_PROFILE: codex-chatgpt-local-keychain
+      OPENSYMPHONY_CODEX_BIN: /usr/local/bin/codex
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GH_TOKEN: ${GITHUB_TOKEN:-}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-OpenSymphony Agent}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-opensymphony@localhost}
+      GIT_COMMITTER_NAME: ${GIT_AUTHOR_NAME:-OpenSymphony Agent}
+      GIT_COMMITTER_EMAIL: ${GIT_AUTHOR_EMAIL:-opensymphony@localhost}
+      HTTPS_PROXY: ${CODEX_HTTPS_PROXY:-}
+      HTTP_PROXY: ${CODEX_HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,opensymphony,web}
+      CODEX_CA_CERTIFICATE: ${CODEX_CA_CERTIFICATE:-}
+    expose:
+      - "2468"
+    volumes:
+      - opensymphony_config:/config
+      - opensymphony_data:/config/.opensymphony
+      - opensymphony_workspaces:/workspaces
+      - codex_auth:/home/opensymphony/.codex
+      - git_config:/home/opensymphony/.config
+      - ssh_auth:/home/opensymphony/.ssh
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:2468/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 3g
+    mem_reservation: 768m
+    cpus: "2.0"
+    pids_limit: 1024
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    restart: unless-stopped
+    depends_on:
+      opensymphony:
+        condition: service_healthy
+    environment:
+      OPENSYMPHONY_WEB_PORT: ${OPENSYMPHONY_WEB_PORT:-8080}
+      OPENSYMPHONY_WEB_USER: ${OPENSYMPHONY_WEB_USER:?Set OPENSYMPHONY_WEB_USER in Coolify}
+      OPENSYMPHONY_WEB_PASSWORD_HASH: ${OPENSYMPHONY_WEB_PASSWORD_HASH:?Set a Caddy password hash in Coolify}
+    expose:
+      - "${OPENSYMPHONY_WEB_PORT:-8080}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:$${OPENSYMPHONY_WEB_PORT}/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 128m
+    mem_reservation: 32m
+    cpus: "0.25"
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /config:size=8m,mode=0700
+      - /data:size=8m,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  opensymphony_config:
+  opensymphony_data:
+  opensymphony_workspaces:
+  codex_auth:
+  git_config:
+  ssh_auth:

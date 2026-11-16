@@ -1,0 +1,11 @@
+target_repo: /config
+
+control_plane:
+  bind: 0.0.0.0:2468
+
+# Memory capture is intentionally disabled in this generic seed. Initialize the
+# mounted /config target and enable it only after choosing the repository policy.
+memory:
+  auto_capture: false
+  auto_archive: false
+  serve: false

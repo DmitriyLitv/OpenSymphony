@@ -1,0 +1,4 @@
+# The container has no OS keyring. Keep the ChatGPT session in the dedicated,
+# persistent codex_auth volume and reject API-key login for this deployment.
+cli_auth_credentials_store = "file"
+forced_login_method = "chatgpt"

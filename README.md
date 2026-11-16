@@ -279,6 +279,10 @@ repo details behind `init`, see [Configuration](docs/configuration.md).
 For alternate config paths, `debug`, `rehydrate`, packaging, and local operator
 workflows, see [Operations](docs/operations.md).
 
+For a production-oriented Docker Compose deployment behind Coolify and
+Traefik, including persistent Codex subscription authentication and the alpha
+web client, see [Coolify Deployment](docs/COOLIFY_DEPLOYMENT.md).
+
 Optional troubleshooting and validation:
 
 ```bash
