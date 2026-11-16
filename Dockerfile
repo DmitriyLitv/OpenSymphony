@@ -82,5 +82,7 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["opensymphony", "run", "--config", "/config/config.yaml"]
 
 FROM caddy:2.10.2-alpine AS web
+RUN setcap -r /usr/bin/caddy \
+    && test -z "$(getcap /usr/bin/caddy)"
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-builder /src/apps/web/dist /srv

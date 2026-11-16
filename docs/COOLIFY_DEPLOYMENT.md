@@ -37,6 +37,13 @@ with OpenSymphony's trusted local full-automation profile inside the container
 and can read injected credentials and mounted workspaces. Treat this as a
 single-operator trusted deployment, not tenant isolation.
 
+The pinned upstream Caddy image gives `/usr/bin/caddy` the
+`cap_net_bind_service` file capability so it can bind ports below 1024. The
+OpenSymphony web image removes that capability during its build and verifies
+that no file capability remains. Caddy listens on unprivileged port `8080`, so
+the capability is unnecessary; removing it lets the service retain
+`cap_drop: ALL`, `no-new-privileges:true`, and its read-only root filesystem.
+
 Runtime limits reserve at most 2 vCPU and 3 GiB for the orchestrator plus its
 Codex child and 0.25 vCPU/128 MiB for Caddy. Bundled DuckDB and the web client
 are compiled on GitHub-hosted runners, not on the deployment VPS. The workflow
@@ -379,6 +386,13 @@ changes by hand.
   classic token scoped to `read:packages`.
 - **`web` is unhealthy:** inspect the Caddy logs, verify the required username
   and literal password hash, and confirm port 8080 matches the Coolify domain.
+- **`exec /usr/bin/caddy: operation not permitted`:** this indicates an older
+  web image that still has Caddy's upstream `cap_net_bind_service` file
+  capability while Compose drops all runtime capabilities. Confirm the
+  `container-images` web job succeeded for the deployed full commit SHA, then
+  redeploy that immutable image. Do not add `NET_BIND_SERVICE` or remove the
+  existing container security settings; Caddy listens on port 8080 and the
+  current image strips the unused file capability at build time.
 - **Domain says no available server:** confirm both services are healthy,
   Caddy listens on `0.0.0.0`, and the domain targets `web` on the configured
   internal port.
